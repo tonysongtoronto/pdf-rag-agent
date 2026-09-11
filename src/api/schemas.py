@@ -10,6 +10,23 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class DocumentItem(BaseModel):
+    filename: str
+    pages: Optional[int] = None
+    indexed: bool
+    uploaded_at: Optional[str] = None
+
+
+class DocumentsListResponse(BaseModel):
+    documents: List[DocumentItem]
+
+
+class DeleteResponse(BaseModel):
+    filename: str
+    status: str
+    note: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, description="The user's question.")
 
@@ -28,6 +45,10 @@ class IngestResponse(BaseModel):
     status: str
     pdf_count: int
     chunk_count: int
+    added: int = 0
+    updated: int = 0
+    skipped: int = 0
+    deleted: int = 0
 
 
 class ErrorResponse(BaseModel):

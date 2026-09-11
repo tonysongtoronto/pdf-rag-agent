@@ -5,20 +5,24 @@ LangChain/LangGraph/FAISS/Gemini/DeepSeek code lives here.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
-from src import config
+from src import config, document_store
 from src.agent.graph import Agent
 from src.api.schemas import (
     ChatRequest,
     ChatResponse,
+    DeleteResponse,
+    DocumentItem,
+    DocumentsListResponse,
     HealthResponse,
     IngestResponse,
     UploadResponse,
 )
-from src.ingestion import IngestionError, run_ingestion
+from src.ingestion import IngestionError, run_ingestion, sync_index_with_disk
 
 router = APIRouter()
 
@@ -31,6 +35,21 @@ def _get_agent(request: Request) -> Agent:
             detail="No FAISS index available yet. Call POST /ingest first.",
         )
     return agent
+
+
+def _refresh_agent(request: Request) -> None:
+    """Rebuild app.state.agent so /chat immediately reflects whatever
+    the index looks like right now, instead of serving stale results
+    from the previous one. Same try/except pattern as the startup
+    lifespan in app.py: if the index is now empty (e.g. the last file
+    was just deleted), Agent() raises RuntimeError -- that's a valid
+    state, not a crash, so /chat should report a clean 503 rather
+    than the server falling over.
+    """
+    try:
+        request.app.state.agent = Agent()
+    except RuntimeError:
+        request.app.state.agent = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -64,14 +83,16 @@ def ingest(request: Request) -> IngestResponse:
     except IngestionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Rebuild the Agent so /chat immediately reflects the new index,
-    # instead of serving stale results from the old one.
-    request.app.state.agent = Agent()
+    _refresh_agent(request)
 
     return IngestResponse(
         status="success",
         pdf_count=result.pdf_count,
         chunk_count=result.chunk_count,
+        added=result.added,
+        updated=result.updated,
+        skipped=result.skipped,
+        deleted=result.deleted,
     )
 
 
@@ -85,4 +106,52 @@ async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
     content = await file.read()
     destination.write_bytes(content)
 
+    # File is on disk but NOT indexed yet -- that only happens on the
+    # next POST /ingest. register_upload() records it as un-indexed so
+    # GET /documents reports it accurately in the meantime.
+    document_store.register_upload(file.filename)
+
     return UploadResponse(filename=file.filename, status="uploaded")
+
+
+@router.get("/documents", response_model=DocumentsListResponse)
+def list_documents() -> DocumentsListResponse:
+    documents = [DocumentItem(**item) for item in document_store.list_documents()]
+    return DocumentsListResponse(documents=documents)
+
+
+@router.delete("/documents/{filename}", response_model=DeleteResponse)
+def delete_document(filename: str, request: Request) -> DeleteResponse:
+    # Path(...).name strips any directory components a caller might
+    # sneak into the URL segment (e.g. "../../etc/passwd") so this can
+    # only ever touch a file directly inside DATA_DIR.
+    safe_name = Path(filename).name
+    target = Path(config.DATA_DIR) / safe_name
+
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"No such document: {safe_name}")
+
+    target.unlink()
+    document_store.remove(safe_name)
+
+    # Sync immediately rather than waiting for the next POST /ingest:
+    # since sync_index_with_disk() re-chunks every *remaining* PDF
+    # (cheap -- no embedding calls for content already in the index)
+    # and only cleanup="full" needs the up-to-date picture to know
+    # this file's vectors should go, there's no real cost to doing it
+    # now. This also means deleting the very last file is NOT an
+    # error (unlike POST /ingest with zero PDFs) -- it just empties
+    # the index.
+    try:
+        sync_index_with_disk()
+    except IngestionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    _refresh_agent(request)
+    
+    return DeleteResponse(
+        filename=safe_name,
+        status="deleted",
+        note="Removed from disk, and its chunks were removed from the FAISS index.",
+    )

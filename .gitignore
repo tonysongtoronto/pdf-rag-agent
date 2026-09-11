@@ -10,3 +10,4 @@ venv/
 .DS_Store
 data/*.pdf
 !data/sample.pdf
+vectorstore/*.sqlite

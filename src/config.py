@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
 VECTORSTORE_DIR = Path(os.getenv("VECTORSTORE_DIR", PROJECT_ROOT / "vectorstore"))
 FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "faiss_index")
+RECORD_MANAGER_DB_NAME = os.getenv("RECORD_MANAGER_DB_NAME", "record_manager.sqlite")
 
 # --- API keys ------------------------------------------------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

@@ -19,8 +19,11 @@ def main() -> None:
         sys.exit(1)
 
     print(f"PDF files processed: {result.pdf_count}")
-    print(f"Chunks created: {result.chunk_count}")
-    print("FAISS index created successfully.")
+    print(f"Chunks in current set: {result.chunk_count}")
+    print(
+        f"Synced: {result.added} added, {result.updated} updated, "
+        f"{result.skipped} unchanged (skipped), {result.deleted} removed."
+    )
 
 
 if __name__ == "__main__":

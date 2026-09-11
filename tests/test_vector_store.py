@@ -40,3 +40,60 @@ def test_store_property_raises_when_nothing_built_or_saved(tmp_path, fake_embedd
 
     with pytest.raises(RuntimeError):
         _ = store.store
+
+
+# -- sync_documents() / Indexing API integration --------------------------
+
+
+def test_sync_documents_adds_new_content(sample_documents, fake_embedding_service, tmp_path):
+    store = VectorStore(embedding_service=fake_embedding_service, persist_dir=tmp_path)
+    result = store.sync_documents(sample_documents)
+
+    assert result["num_added"] == len(sample_documents)
+    assert store.exists_on_disk()
+    assert all(store.is_indexed(doc.metadata["source"]) for doc in sample_documents)
+
+
+def test_sync_documents_skips_unchanged_content(sample_documents, fake_embedding_service, tmp_path):
+    store = VectorStore(embedding_service=fake_embedding_service, persist_dir=tmp_path)
+    store.sync_documents(sample_documents)
+
+    result = store.sync_documents(sample_documents)
+
+    assert result["num_added"] == 0
+    assert result["num_skipped"] == len(sample_documents)
+
+
+def test_sync_documents_removes_source_no_longer_present(
+    sample_documents, fake_embedding_service, tmp_path
+):
+    store = VectorStore(embedding_service=fake_embedding_service, persist_dir=tmp_path)
+    store.sync_documents(sample_documents)
+    removed_source = sample_documents[0].metadata["source"]
+
+    remaining = [doc for doc in sample_documents if doc.metadata["source"] != removed_source]
+    result = store.sync_documents(remaining)
+
+    assert result["num_deleted"] == 1
+    assert store.is_indexed(removed_source) is False
+    assert all(store.is_indexed(doc.metadata["source"]) for doc in remaining)
+
+
+def test_sync_documents_to_empty_list_forgets_the_index(
+    sample_documents, fake_embedding_service, tmp_path
+):
+    store = VectorStore(embedding_service=fake_embedding_service, persist_dir=tmp_path)
+    store.sync_documents(sample_documents)
+    assert store.exists_on_disk()
+
+    store.sync_documents([])
+
+    # Emptied out completely -- should look identical to "never built",
+    # not a zero-length-but-present index.
+    assert store.exists_on_disk() is False
+    assert store.is_indexed(sample_documents[0].metadata["source"]) is False
+
+
+def test_is_indexed_false_before_any_sync(fake_embedding_service, tmp_path):
+    store = VectorStore(embedding_service=fake_embedding_service, persist_dir=tmp_path)
+    assert store.is_indexed("never_uploaded.pdf") is False
