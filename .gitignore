@@ -11,3 +11,4 @@ venv/
 data/*.pdf
 !data/sample.pdf
 vectorstore/*.sqlite
+vectorstore/embedding_cache/

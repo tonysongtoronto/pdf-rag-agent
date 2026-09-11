@@ -17,6 +17,8 @@ from src.agent.state import AgentState
 from src.llm import get_llm
 from src.retriever import Retriever
 
+
+
 SYSTEM_PROMPT = (
     "You are a helpful assistant with access to two tools:\n"
     "- search_documents: search a PDF knowledge base. Use this whenever the "
@@ -25,9 +27,15 @@ SYSTEM_PROMPT = (
     "instead of computing it yourself.\n"
     "If neither tool is needed (e.g. a greeting or general knowledge "
     "question), answer directly. When you used search_documents, mention "
-    "which document/page the information came from."
+    "which document/page the information came from.\n"
+    "Keep answers concise (typically 2-5 sentences). Only use headers, "
+    "numbered steps, or a separate 'Sources' section if the user explicitly "
+    "asks for a detailed breakdown or step-by-step explanation — and even "
+    "then, keep each step to one sentence and skip any closing commentary "
+    "or extra context the user didn't ask about. End your answer immediately "
+    "after the last step or fact that directly answers the question — do not "
+    "add a summarizing or contextualizing final paragraph."
 )
-
 
 def make_agent_node(tools: List[BaseTool]):
     # Bind the LLM to its tools lazily, on first actual invocation, so

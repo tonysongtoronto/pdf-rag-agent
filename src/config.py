@@ -19,6 +19,7 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
 VECTORSTORE_DIR = Path(os.getenv("VECTORSTORE_DIR", PROJECT_ROOT / "vectorstore"))
+EMBEDDING_CACHE_DIR = Path(os.getenv("EMBEDDING_CACHE_DIR", VECTORSTORE_DIR / "embedding_cache"))
 FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "faiss_index")
 RECORD_MANAGER_DB_NAME = os.getenv("RECORD_MANAGER_DB_NAME", "record_manager.sqlite")
 
@@ -28,7 +29,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 # --- Embedding -----------------------------------------------------------
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-21")
 
 # --- Chunking --------------------------------------------------------------
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
@@ -49,3 +50,4 @@ def ensure_dirs() -> None:
     """Create data/vectorstore directories if they do not exist yet."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
+    EMBEDDING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
