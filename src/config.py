@@ -29,7 +29,12 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 # --- Embedding -----------------------------------------------------------
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-21")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2")
+
+# Client-side pacing cap for embedding requests, kept comfortably below
+# Gemini's free-tier 100 RPM ceiling (shared across every model/process
+# hitting the same API key, so leave headroom rather than setting 100).
+EMBEDDING_RPM_LIMIT = int(os.getenv("EMBEDDING_RPM_LIMIT", "80"))
 
 # --- Chunking --------------------------------------------------------------
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
