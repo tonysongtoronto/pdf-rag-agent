@@ -69,6 +69,16 @@ def register_upload(filename: str) -> None:
         _save(data)
 
 
+def get(filename: str) -> Optional[dict]:
+    """The metadata record for `filename`, or None if it isn't tracked.
+    Used by the upload route to tell "new file" from "retrying an
+    upload that was never indexed" from "already exists and is
+    indexed" -- see src/api/routes.py."""
+    with _LOCK:
+        data = _load()
+    return data.get(filename)
+
+
 def remove(filename: str) -> None:
     with _LOCK:
         data = _load()
@@ -77,15 +87,18 @@ def remove(filename: str) -> None:
 
 
 def list_documents() -> List[dict]:
-    """Every PDF currently on disk, with page count / upload time
-    (when known) and a live `indexed` flag from the FAISS record
-    manager.
+    """Every document this metadata file knows about, with page count
+    / upload time (when known) and a live `indexed` flag from the
+    FAISS record manager.
 
-    Self-heals drift between the metadata file and disk (a PDF
-    dropped into data/ by hand, or removed outside the API): entries
-    for files no longer on disk are dropped; files with no metadata
-    entry get one created with `uploaded_at: None` (we don't know when
-    -- it wasn't uploaded through this API).
+    This metadata file -- not DATA_DIR -- is the source of truth for
+    "what documents exist". DATA_DIR is a temporary staging area used
+    only while a file is being uploaded/indexed; a deploy with
+    non-persistent local disk can lose everything in it between
+    restarts without that meaning any document was "deleted". A file
+    disappearing from disk is only ever noticed (and only matters) at
+    the point something tries to read it, e.g. POST
+    /documents/{filename}/index -- not here.
     """
     # Local import: this module deliberately depends on vector_store
     # (to ask "is this file indexed"), not the other way around --
@@ -94,36 +107,14 @@ def list_documents() -> List[dict]:
 
     with _LOCK:
         data = _load()
-        on_disk = (
-            sorted(p.name for p in config.DATA_DIR.glob("*.pdf"))
-            if config.DATA_DIR.exists()
-            else []
-        )
-        
-        changed = False
-        for filename in on_disk:
-            if filename not in data:
-                data[filename] = {
-                    "filename": filename,
-                    "pages": _page_count(config.DATA_DIR / filename),
-                    "uploaded_at": None,
-                }
-                changed = True
-
-        for stale in set(data) - set(on_disk):
-            del data[stale]
-            changed = True
-
-        if changed:
-            _save(data)
 
     vector_store = VectorStore()
     return [
         {
             "filename": filename,
-            "pages": data[filename].get("pages"),
+            "pages": meta.get("pages"),
             "indexed": vector_store.is_indexed(filename),
-            "uploaded_at": data[filename].get("uploaded_at"),
+            "uploaded_at": meta.get("uploaded_at"),
         }
-        for filename in on_disk
+        for filename, meta in sorted(data.items())
     ]

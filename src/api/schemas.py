@@ -55,9 +55,18 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class IndexResponse(BaseModel):
+    filename: str
+    pages: Optional[int] = None
+    chunks_indexed: int
+    status: str
+
+
 class UploadResponse(BaseModel):
     filename: str
     status: str
+    indexed: bool = False
+    index_result: Optional[IndexResponse] = None
 
 
 class HealthResponse(BaseModel):

@@ -78,18 +78,12 @@ class VectorStore:
         else:
             self._store.add_documents(documents)
 
-    def sync_documents(self, documents: List[Document]) -> dict:
-        """Reconcile FAISS with `documents` via LangChain's Indexing
-        API (cleanup="full", grouped by the `source` metadata key set
-        by the document loader).
-
-        Pass the FULL current set of chunks -- every file currently in
-        DATA_DIR, not just new ones. Re-loading/re-chunking unchanged
-        PDFs is cheap (no embedding calls); cleanup="full" needs to see
-        everything that SHOULD exist right now to know what no longer
-        does and delete it. Returns the
-        {"num_added", "num_updated", "num_skipped", "num_deleted"}
-        result from LangChain's index().
+    def _run_index(self, documents: List[Document], cleanup: str) -> dict:
+        """Shared plumbing behind sync_documents()/sync_one(): make sure
+        a store exists, call LangChain's index(), then persist-or-forget
+        depending on whether anything is left. `cleanup` is "full" for
+        the whole-corpus path or "scoped_full" for the single-file path
+        -- see sync_documents() and sync_one() for which to use when.
         """
         if self._store is None:
             if self.exists_on_disk():
@@ -101,7 +95,7 @@ class VectorStore:
             documents,
             self.record_manager,
             self._store,
-            cleanup="full",
+            cleanup=cleanup,
             source_id_key="source",
             # sha1 is the library default but triggers a deprecation
             # warning on every call; blake2b is the recommended,
@@ -121,6 +115,65 @@ class VectorStore:
             self.save()
 
         return dict(result)
+
+    def sync_documents(self, documents: List[Document]) -> dict:
+        """Reconcile FAISS with `documents` via LangChain's Indexing
+        API (cleanup="full", grouped by the `source` metadata key set
+        by the document loader).
+
+        Pass the FULL current set of chunks -- every file currently in
+        DATA_DIR, not just new ones. Re-loading/re-chunking unchanged
+        PDFs is cheap (no embedding calls); cleanup="full" needs to see
+        everything that SHOULD exist right now to know what no longer
+        does and delete it. Returns the
+        {"num_added", "num_updated", "num_skipped", "num_deleted"}
+        result from LangChain's index(). Kept for the admin-only
+        POST /ingest reconciliation path; per-file uploads should use
+        sync_one() instead (see below).
+        """
+        return self._run_index(documents, cleanup="full")
+
+    def sync_one(self, filename: str, documents: List[Document]) -> dict:
+        """(Re)index exactly one file's chunks without touching any
+        other file's vectors.
+
+        Pass ONLY this file's current chunks (every Document must have
+        metadata["source"] == filename). Uses cleanup="scoped_full",
+        which -- unlike "full" -- only looks at source ids it sees in
+        this call: it adds/updates what changed and deletes this file's
+        own now-stale chunks, but leaves every other file's chunks
+        alone. This is what makes a single-file "Index now" possible
+        without re-scanning or re-touching the rest of the corpus.
+        """
+        return self._run_index(documents, cleanup="scoped_full")
+
+    def delete_source(self, filename: str) -> int:
+        """Remove every chunk belonging to `filename` from FAISS and
+        the record manager, without touching any other file's chunks.
+        Returns the number of chunks removed (0 if the file had none,
+        e.g. it was uploaded but never indexed).
+        """
+        if not self.exists_on_disk():
+            return 0
+        if self._store is None:
+            self.load()
+
+        keys = self.record_manager.list_keys(group_ids=[filename])
+        if not keys:
+            return 0
+
+        # The Indexing API uses each record manager key as the matching
+        # FAISS docstore id (see langchain_core.indexing.api.index),
+        # so these keys can be passed straight to FAISS's delete().
+        self._store.delete(keys)
+        self.record_manager.delete_keys(keys)
+
+        if len(self._store.index_to_docstore_id) == 0:
+            self._forget()
+        else:
+            self.save()
+
+        return len(keys)
 
     def is_indexed(self, filename: str) -> bool:
         """Whether `filename` currently has any chunks in the index,
